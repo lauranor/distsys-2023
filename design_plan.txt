@@ -1,0 +1,12 @@
+Design plan ( 5 points)
+
+The goal of the design plan is to start working with your programming project early during the course. Plan gives you maximum of 5 points. You will get one point for each of these elements
+- names of team members and one paragraph description of the selected topic
+- more detailed description of the topic and/ or selected solution techniques/methods
+- description of different nodes, their roles and functionalities
+- description of messages send and received by the nodes (syntax and semantics) – this contains the ones you have identified so far
+- some comments (one or two paragraphs about which features are you going to implement, and/or the scalability and fault tolerance aspects or goals)
+
+Design plan must contain team member names and short description of the selected topic
+
+DL: Tue 21.11. midnight (23:59)
