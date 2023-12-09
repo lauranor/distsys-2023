@@ -1,13 +1,16 @@
 import datetime
 from socket import *
 import pickle
+import sys
+import argparse
 
 # The player node class
 class Player:
-    def __init__(self):
-        self.bingo_host = ""
-        self.bingo_host_port = 65432
-        self.name = "placeholder name"
+    def __init__(self, host="", port=65432):
+        self.bingo_host = host
+        self.bingo_host_port = port
+        print("What's your name?")
+        self.name = input()
         self.socket = socket(AF_INET, SOCK_STREAM)
         self.players = []
         self.drawn_numbers = []
@@ -126,4 +129,10 @@ class Player:
         return False
 
 if __name__ == "__main__":
-    Player()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host",default="",help="host ip")
+    parser.add_argument("--port",default=65432,help="host port")
+    args = parser.parse_args()
+    host = args.host
+    port = args.port
+    Player(host=host, port=port)
