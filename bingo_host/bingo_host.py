@@ -19,19 +19,8 @@ class BingoHost:
         self.bingo_cards = []
         self.registrations_open = False
         self.game_ongoing = False
+        self.send_lock = threading.Lock()
         self.launch()
-
-    def launch(self):
-        self.initialise_new_game()
-        while self.registrations_open:
-            print(f"Bingo host started, waiting for players to connect...")
-            # Accept new connections from players
-            conn, addr = self.socket.accept()
-            self.add_player(conn, addr)
-            # todo? registration round open for a certain time, then start the game
-            if len(self.players) == 2:
-                self.registrations_open = False
-        self.start_game()
 
     # Initialises a new game
     def initialise_new_game(self):
@@ -45,34 +34,97 @@ class BingoHost:
         self.bingo_cards = []
         self.registrations_open = True
 
+    def launch(self):
+        self.initialise_new_game()
+        while self.registrations_open:
+            print(f"Bingo host started, waiting for players to connect...")
+            # Accept new connections from players
+            conn, addr = self.socket.accept()
+            self.add_player(conn, addr)
+            # todo? registration round open for a certain time, then start the game
+            if len(self.players) == 2:
+                self.registrations_open = False
+        self.start_game()
+
     # Adds a new player to the game
     def add_player(self, conn, addr):
         self.connections.append(conn)
         self.players.append(addr)
         # Generate and send a new bingo card to the connected player
         bingo_card = self.generate_bingo_card()
+        print("Sending bingo card to player: ", bingo_card)
         conn.sendall(pickle.dumps({"type": "accept_player", "card": bingo_card}))
-        # todo: wait for acknowledgement + handle non-responding players?
+        # Wait for acknowledgement from the player
+        self.wait_for_ack(conn, message_type="accept_player")
         print(f"Connected by {addr}")
 
     # Method to send a message to all players
     # consider multicasting?
-    def send_message_to_players(self, message):
+    def send_message_to_players(self, message, ack_required=False):
         for conn in self.connections:
             conn.sendall(pickle.dumps(message))
+
+        if ack_required:
+            # Check for acknowledgements from all players
+            with self.send_lock:
+                self.wait_for_ack_from_all(message_type=message["type"])
+
+    # Listens for acknowledgements from a single player, returns true if acknowledgement received
+    # Returns false and removes the player from the game if no acknowledgement received in time
+    def wait_for_ack(self, conn, message_type):
+        # Set connection timeout to 2 seconds
+        conn.settimeout(2)
+        # Set number of retries to 3
+        ack_retries = 3
+        acknowledgement_received = False
+        print(f"Waiting for acknowledgement from {conn.getpeername()} for {message_type}...")
+        while ack_retries > 0 and not acknowledgement_received:
+            try:
+                data = conn.recv(1024)
+                data = pickle.loads(data)
+                if data["type"] == "ack":
+                    print(f"Received acknowledgement from {conn.getpeername()} for {message_type}")
+                    acknowledgement_received = True
+                    break
+            except timeout:
+                print(f"No acknowledgement received from {conn.getpeername()} for {message_type}, retrying...")
+                ack_retries -= 1
+        if not acknowledgement_received:
+            print(f"No acknowledgement received for {message_type}.")
+            print(f"removing player {conn.getpeername()} from the game and closing connection...")
+            self.remove_player(conn)
+        return acknowledgement_received
+
+    # Listens for acknowledgements from all players
+    def wait_for_ack_from_all(self, message_type):
+        for conn in self.connections:
+            listen_thread = threading.Thread(target=self.wait_for_ack, args=(conn,))
+            listen_thread.start()
+
+    # Removes a player from the game
+    def remove_player(self, conn):
+        # Send one more message to the player to let them know they're being removed, just in case
+        conn.sendall(pickle.dumps({
+            "type": "end_message", 
+            "content": "You have been removed from the game due to inactivity."
+        }))
+        self.players.remove(conn.getpeername())
+        self.connections.remove(conn)
+        conn.close()
 
     # Starts the game and sends start message to all players containing the connection 
     # information to other players
     def start_game(self):
         print("Starting game...")
         self.game_ongoing = True
+        # Send start message to all players, requires acknowledgement from all players
         self.send_message_to_players({
             "type": "start_message",
             "content": "Game starts now!",
             "connections": self.players
-        })
-        # todo: wait for acknowledgement + handle non-responding players
+        }, ack_required=True)
 
+        # Start drawing numbers and listening to players asynchronously
         self.draw_numbers_async()
         self.listen_to_players_async()
 
@@ -129,6 +181,7 @@ class BingoHost:
     # todo: consider using asyncio
     def listen_to_players_async(self):
         for conn in self.connections:
+            conn.settimeout(None)
             listen_thread = threading.Thread(target=self.listen_to_player, args=(conn,))
             listen_thread.start()
 
@@ -139,7 +192,7 @@ class BingoHost:
             print("IIIIT'S A BINGOOO!")
             self.send_message_to_players({
                 "type": "winner_confirmation", 
-                "content":f"Player {name} won the round! Thanks for playing!"
+                "content":f"Player {name} won the round!"
             })
             self.end_game("The round has ended. Thanks for playing!")
         else:
@@ -154,8 +207,8 @@ class BingoHost:
     # Ends the game and closes all connections
     # todo: it's not closing very gracefully, need to fix
     def end_game(self, message):
-        self.game_ongoing = False
         self.send_message_to_players({"type": "end_message", "content": message})
+        self.game_ongoing = False
 
         # Wait for threads to complete before closing connections
         for thread in threading.enumerate():
