@@ -34,6 +34,9 @@ class Player:
             # Message from the host that a new number has been drawn
             elif data["type"] == "bingo_number":
                 self.handle_bingo_number(data)
+            # Message from the host to check the consensus on a bingo
+            elif data["type"] == "consensus_round":
+                self.handle_consensus_round(data)
             # Message from the host that the game is over
             elif data["type"] == "end_message":
                 self.handle_end_message(data)
@@ -44,12 +47,9 @@ class Player:
             else:
                 print("Unknown message type: ", data["type"])
             # todo at least:
-            # handle card hit
-            # handle sync request
-            # handle sync response
-            # handle bingo
-            # handle winner confirmation
-            # handle bingo rejection
+            # handle card hit message to other players
+            # handle sync request to other players
+            # handle sync response from other players
 
     # Handle registration accepted message and store the bingo card
     def handle_registration_accepted(self, data):
@@ -127,6 +127,21 @@ class Player:
         if all(self.bingo_card[i][4-i] in self.drawn_numbers for i in range(5)):
             return True
         return False
+
+    # Handle consensus round message
+    def handle_consensus_round(self, data):
+        bingo_row = data["numbers"]
+        print("Checking consensus on row: ", bingo_row)
+        is_bingo = set(bingo_row).issubset(set(self.drawn_numbers))
+        print("Sending consensus response. Is bingo: ", is_bingo)
+        self.socket.sendall(
+            pickle.dumps({
+                "type": "consensus_response",
+                "is_bingo": is_bingo,
+                "timestamp": datetime.datetime.now(),
+            })
+        )
+        print("Consensus response sent")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
