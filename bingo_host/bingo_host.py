@@ -220,7 +220,6 @@ class BingoHost:
     # todo: consider using asyncio
     def listen_to_players_async(self):
         for conn in self.connections:
-            conn.settimeout(None)
             listen_thread = threading.Thread(target=self.listen_to_player, args=(conn,))
             listen_thread.start()
 
