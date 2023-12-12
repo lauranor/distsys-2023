@@ -55,7 +55,8 @@ class BingoHost:
         # Generate and send a new bingo card to the connected player
         bingo_card = self.generate_bingo_card()
         print("Sending bingo card to player: ", bingo_card)
-        conn.sendall(pickle.dumps({"type": "accept_player", "card": bingo_card}))
+        conn.sendall(pickle.dumps({"type": "accept_player", "card": bingo_card, "player": addr}))
+
         # Wait for acknowledgement from the player
         self.wait_for_response(conn, message_type="accept_player", response_type="ack")
         print(f"Connected by {addr}")
