@@ -16,7 +16,7 @@ class BingoHost:
         self.drawn_numbers = []
         self.bingo = None
         self.bingo_cards = []
-        self.registrations_open = False
+        self.registration_open = False
         self.game_ongoing = False
         self.consensus = {}
         self.send_lock = threading.Lock()
@@ -31,35 +31,50 @@ class BingoHost:
         random.shuffle(self.numbers)
         self.drawn_numbers = []
         self.bingo_cards = []
-        self.registrations_open = True
+        self.registration_open = True
         self.game_ongoing = False
         self.consensus = {}
         self.bingo_shouted_event.clear()
 
     def launch(self):
         self.initialise_new_game()
-        while self.registrations_open:
+        while self.registration_open:
             print(f"Bingo host started, waiting for players to connect...")
             # Accept new connections from players
             conn, addr = self.socket.accept()
             self.add_player(conn, addr)
             # todo? registration round open for a certain time, then start the game
-            if len(self.players) == 2:
-                self.registrations_open = False
+            if len(self.players) == 3:
+                self.registration_open = False
         self.start_game()
 
     # Adds a new player to the game and sends them a bingo card
     def add_player(self, conn, addr):
         self.connections.append(conn)
-        self.players.append(addr)
-        # Generate and send a new bingo card to the connected player
-        bingo_card = self.generate_bingo_card()
-        print("Sending bingo card to player: ", bingo_card)
-        conn.sendall(pickle.dumps({"type": "accept_player", "card": bingo_card, "player": addr}))
+        data = conn.recv(1024)
+        data = pickle.loads(data)
+        if data["type"] == "register": 
+            player_data = data["player"]
+            player = {
+                "address": addr[0], 
+                "client_port": addr[1], 
+                "server_port": player_data["server_port"], 
+                "name": player_data["name"]
+            }
+            print("Received registration from player: ", player)
+            self.players.append(player)
+            # Generate and send a new bingo card to the connected player
+            bingo_card = self.generate_bingo_card()
+            print("Sending bingo card to player: ", bingo_card)
+            conn.sendall(pickle.dumps({
+                "type": "accept_player", 
+                "card": bingo_card, 
+                "player": player
+            }))
 
-        # Wait for acknowledgement from the player
-        self.wait_for_response(conn, message_type="accept_player", response_type="ack")
-        print(f"Connected by {addr}")
+            # Wait for acknowledgement from the player
+            self.wait_for_response(conn, message_type="accept_player", response_type="ack")
+            print(f"Connected by {addr}")
 
     # Method to send a message to all players
     # If response_type is not None, wait for response from all players
@@ -103,7 +118,7 @@ class BingoHost:
                 retries -= 1
         if not response_received:
             print(f"No response received for {message_type}.")
-            print(f"removing player {conn.getpeername()} from the game and closing connection...")
+            print(f"Removing player {conn.getpeername()} from the game and closing connection...")
             self.remove_player(conn)
         return response_received
 
@@ -120,9 +135,18 @@ class BingoHost:
             "type": "end_message", 
             "content": "You have been removed from the game due to inactivity."
         }))
-        self.players.remove(conn.getpeername())
+        # Find the player in the list of players
+        player = next((player for player in self.players if player["address"] == conn.getpeername()[0]), None)  
+        # Remove the player from the list of players and close the connection
+        if player is not None:
+            self.players.remove(player)
         self.connections.remove(conn)
         conn.close()
+        # inform all players that a player has been removed
+        self.send_message_to_players({
+            "type": "player_removed", 
+            "content": "Player " + player["name"] + " has been removed from the game due to inactivity."
+        })
 
     # Starts the game and sends start message to all players containing the connection 
     # information to other players
