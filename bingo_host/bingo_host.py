@@ -44,7 +44,7 @@ class BingoHost:
             conn, addr = self.socket.accept()
             self.add_player(conn, addr)
             # todo? registration round open for a certain time, then start the game
-            if len(self.players) == 3:
+            if len(self.players) == 2:
                 self.registration_open = False
         self.start_game()
 
@@ -59,7 +59,8 @@ class BingoHost:
                 "address": addr[0], 
                 "client_port": addr[1], 
                 "server_port": player_data["server_port"], 
-                "name": player_data["name"]
+                "name": player_data["name"],
+                "hit_numbers": player_data["hit_numbers"]
             }
             print("Received registration from player: ", player)
             self.players.append(player)
@@ -251,7 +252,7 @@ class BingoHost:
     def handle_bingo(self):
         self.send_message_to_players({
             "type": "bingo_check",
-            "content": "Checking if it's a bingo for player " + self.bingo["player"]
+            "content": self.bingo["player"] + " shouted bingo! Checking if it's a bingo..."
         })
         bingo_row = self.get_bingo_row(self.bingo["card"])
         if bingo_row is not None:

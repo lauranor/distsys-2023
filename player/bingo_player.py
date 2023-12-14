@@ -29,7 +29,8 @@ class Player:
             "address": "", 
             "client_port": "", 
             "server_port": self.port, 
-            "name": self.name
+            "name": self.name,
+            "hit_numbers": []
         }
         self.launch()
 
@@ -57,6 +58,10 @@ class Player:
             # Message from the host that a player has been removed from the game
             elif data["type"] == "remove_player":
                 self.handle_remove_player(data)
+            # Message from the host that a bingo was shouted
+            elif data["type"] == "bingo_check":
+                self.bingo_shouted_event.set()
+                print(data["content"])
             # Message from the host that a bingo was rejected 
             elif data["type"] == "rejected_bingo":
                 self.bingo_shouted_event.clear()
@@ -129,7 +134,7 @@ class Player:
         for player in self.players:
             peer_socket = socket(AF_INET, SOCK_STREAM)
             self.peer_sockets.append(peer_socket)
-            print("Connecting to " + player["address"], player["server_port"])
+            print("Connecting to ", player["address"], player["server_port"])
             peer_socket.connect((player["address"], player["server_port"]))
 
     # Listen to other players asynchronously
@@ -149,6 +154,8 @@ class Player:
                     self.handle_sync_request(conn, data)
                 if data["type"] == "sync_response":
                     self.handle_sync_response(conn, data)
+                if data["type"] == "number_marked":
+                    self.handle_number_marked(conn, data)
                 #if data["type"] == "check_numbers":
                 #    self.check_peer_numbers(data)
                 #if data["type"] == "check_peer_numbers_response":
@@ -269,11 +276,32 @@ class Player:
     def check_number(self, number):
         for row in self.bingo_card:
             if number in row:
-                # todo: send message to other players that the number was a hit
+                self.player["hit_numbers"].append(number)
+                if not self.bingo_shouted_event.is_set():
+                    self.send_hit(number)
                 print("IT'S A HIT: ", number)
                 self.print_card()
                 return True
         return False
+
+    # Send a message to all other players that the given number was a hit
+    def send_hit(self, number):
+        for peer_socket in self.peer_sockets:
+            peer_socket.sendall(
+                pickle.dumps({
+                    "type": "number_marked",
+                    "number": number,
+                    "player": self.name
+                })
+            )
+
+    # Handle number marked message  
+    def handle_number_marked(self, conn, data):
+        # Get player based on the connection
+        player = self.players[self.connections.index(conn)]
+        print("Player", player["name"], "hit number:", data["number"])
+        # Add the number to the player's hit numbers
+        player["hit_numbers"].append(data["number"])
 
     # Prints card in a form where each row is a vertical column
     def print_card(self):
@@ -306,7 +334,6 @@ class Player:
 
     # Handle consensus round message
     def handle_consensus_round(self, data):
-        self.bingo_shouted_event.set()
         bingo_row = data["numbers"]
         print("Checking consensus on row: ", bingo_row)
         is_bingo = set(bingo_row).issubset(set(self.drawn_numbers))
