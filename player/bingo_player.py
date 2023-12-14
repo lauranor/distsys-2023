@@ -356,7 +356,7 @@ class Player:
         self.peer_sockets.remove(peer_socket)
         connection = self.connections[self.players.index(data["player"])]
         connection.close()
-        self.connections.remove(data["player"]) 
+        self.connections.remove(connection)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
