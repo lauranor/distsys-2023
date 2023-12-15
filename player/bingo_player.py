@@ -9,6 +9,8 @@ import random
 
 # The player node class
 class Player:
+    # Constructor
+    # Takes the host and port of the host as arguments
     def __init__(self, host="", port=65432):
         self.host = ""
         self.port = random.randint(49152, 65534) # Pick a random port between 49152 and 65534
@@ -75,8 +77,6 @@ class Player:
                 print(data["content"])
             else:
                 print("Unknown message type: ", data["type"])
-            # todo at least:
-            # handle card hit message to other players
 
     # Send a registration message to the host containing the player's address,
     # name and the ports (server + client) the player is listening on
@@ -92,7 +92,7 @@ class Player:
             pickle.dumps({"type": "register", "player": self.player})
         )
 
-    # Handle registration accepted message and store the bingo card
+    # Handles registration accepted message and stores the bingo card
     def handle_registration_accepted(self, data):
         self.bingo_card = data["card"]  
         self.socket.sendall(pickle.dumps({"type": "ack"}))
@@ -117,7 +117,10 @@ class Player:
             print("Connection established with: ", addr)
         print("All players connected")
 
-    # Handle game start message
+    # Handles game start message
+    # Establishes connections with other players and start listening to them asynchronously
+    # Starts a thread that regularly sends a sync request to other players
+    # Sends an ack message to the host
     def handle_game_start(self, data):
         print(data["content"])
         self.players = data["connections"]
@@ -125,9 +128,9 @@ class Player:
         print("Other players: ", self.players)
         self.establish_server()
         self.connect_other_players()
-        self.socket.sendall(pickle.dumps({"type": "ack"}))
         self.start_request_sync_thread()
         self.listen_to_players_async()
+        self.socket.sendall(pickle.dumps({"type": "ack"}))
 
     # Connect to other players
     def connect_other_players(self):
@@ -137,60 +140,35 @@ class Player:
             print("Connecting to ", player["address"], player["server_port"])
             peer_socket.connect((player["address"], player["server_port"]))
 
-    # Listen to other players asynchronously
+    # Listens to other players asynchronously
     def listen_to_players_async(self):
         for conn in self.connections:
             listen_thread = threading.Thread(target=self.listen_to_player, args=(conn,))
             listen_thread.start()
 
-    # Listen for messages from an individual player
+    # Listens for messages from an individual player
     def listen_to_player(self, conn):
         conn.settimeout(1) # Set connection timeout to 1 second in order to regularly check if a bingo has been shouted
         while not self.game_over:
             try:
                 data = conn.recv(1024)
                 data = pickle.loads(data)
+                # Sync request from other player
                 if data["type"] == "sync_request":
                     self.handle_sync_request(conn, data)
+                # Sync response from other player
                 if data["type"] == "sync_response":
                     self.handle_sync_response(conn, data)
+                # Number marked message from other player
                 if data["type"] == "number_marked":
                     self.handle_number_marked(conn, data)
-                #if data["type"] == "check_numbers":
-                #    self.check_peer_numbers(data)
-                #if data["type"] == "check_peer_numbers_response":
-                #    if not data["is_ok"]:
-                #        print("Peer numbers not ok")
-                #        #TODO handle syncing numbers (bingo_host)
             except timeout:
                 continue
 
-    def check_peer_numbers(self, data):
-        peer_numbers = data["my_numbers"]
-        is_ok = len(peer_numbers) == len(self.drawn_numbers) and peer_numbers == self.drawn_numbers
-        for peer_socket in self.peer_sockets:
-            peer_socket.sendall(
-                pickle.dumps({
-                    "type": "check_peer_numbers_response",
-                    "is_ok": is_ok,
-                    "timestamp": datetime.datetime.now(),
-                })
-            )
-
-    def send_numbers_to_peers(self):
-        message_type = "check_numbers"
-
-        for peer_socket in self.peer_sockets:
-            peer_socket.sendall(
-                pickle.dumps({
-                    "type": message_type,
-                    "my_numbers": self.drawn_numbers,
-                    "timestamp": datetime.datetime.now(),
-                    "player": self.name
-                })
-            )
-
-    # Handle bingo number message
+    # Handles bingo number message
+    # Adds the number to the drawn numbers and checks if it's a hit
+    # If it's a hit, send the number to all other players
+    # Checks if the card has a bingo and sends a bingo message to the host if it does
     def handle_bingo_number(self, data):
         print("Number drawn: ", data["number"])
         self.drawn_numbers.append(data["number"])
@@ -214,11 +192,11 @@ class Player:
         sync_thread = threading.Thread(target=self.request_sync, args=())
         sync_thread.start()
 
-    # Request sync from other players
+    # Requests sync from other players
+    # Picks a random interval in order to avoid flooding the network
+    # Requests sync every x seconds while the game is not over
     def request_sync(self):
-        # Pick a random interval in order to avoid flooding the network
         interval = random.randint(4, 8)
-        # Request sync every x seconds while the game is not over
         while not self.game_over and not self.bingo_shouted_event.is_set():
             time.sleep(interval)
             if not self.bingo_shouted_event.is_set():
@@ -231,10 +209,10 @@ class Player:
                         })
                         )
 
-    # Handle sync request message
-    # Send the drawn numbers to the peer
+    # Handles sync request message
+    # Sends the drawn numbers to the peer
     def handle_sync_request(self, conn, data):
-        # find peer socket based on the connection
+        # Find peer socket based on the connection
         peer_socket = self.peer_sockets[self.connections.index(conn)]
 
         peer_socket.sendall(
@@ -245,8 +223,8 @@ class Player:
             })
         )
 
-    # Handle sync response message
-    # Check if the drawn numbers are the same as the peer's drawn numbers
+    # Handles sync response message
+    # Checks if the drawn numbers are the same as the peer's drawn numbers
     def handle_sync_response(self, conn, data):
         peer_numbers = data["numbers"]
         is_ok = len(peer_numbers) == len(self.drawn_numbers) and peer_numbers == self.drawn_numbers
@@ -255,7 +233,8 @@ class Player:
             # Combine the drawn numbers with the peer's drawn numbers
             self.drawn_numbers = list(set(self.drawn_numbers + peer_numbers))
 
-    # Handle end message
+    # Handles end message
+    # Closes all connections and sockets
     def handle_end_message(self, data):
         self.game_over = True
         print(data["content"])
@@ -273,6 +252,7 @@ class Player:
         self.socket.close()
 
     # Checks if the given number is in the card
+    # If it is, adds it to the player's hit numbers and sends a message to all other players
     def check_number(self, number):
         for row in self.bingo_card:
             if number in row:
@@ -284,7 +264,7 @@ class Player:
                 return True
         return False
 
-    # Send a message to all other players that the given number was a hit
+    # Sends a message to all other players that the given number was a hit
     def send_hit(self, number):
         for peer_socket in self.peer_sockets:
             peer_socket.sendall(
@@ -295,7 +275,8 @@ class Player:
                 })
             )
 
-    # Handle number marked message  
+    # Handles number marked message
+    # Sends the number to all other players and adds it to the player's hit numbers
     def handle_number_marked(self, conn, data):
         # Get player based on the connection
         player = self.players[self.connections.index(conn)]
@@ -332,7 +313,8 @@ class Player:
             return True
         return False
 
-    # Handle consensus round message
+    # Handles consensus round message
+    # If the row is a subset of the drawn numbers, sends a consensus response that the row is a bingo
     def handle_consensus_round(self, data):
         bingo_row = data["numbers"]
         print("Checking consensus on row: ", bingo_row)
@@ -347,7 +329,8 @@ class Player:
         )
         print("Consensus response sent")
     
-    # Handle remove player message
+    # Handles remove player message
+    # Removes the player from the list of players and closes the connection
     def handle_remove_player(self, data):
         print("Removing player: ", data["player"])
         self.players.remove(data["player"])
@@ -360,6 +343,7 @@ class Player:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    # Add host and port arguments
     parser.add_argument("--host",default="",help="host ip")
     parser.add_argument("--port",default=65432,help="host port")
     args = parser.parse_args()
