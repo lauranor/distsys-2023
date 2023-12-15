@@ -156,26 +156,8 @@ class Player:
                     self.handle_sync_response(conn, data)
                 if data["type"] == "number_marked":
                     self.handle_number_marked(conn, data)
-                #if data["type"] == "check_numbers":
-                #    self.check_peer_numbers(data)
-                #if data["type"] == "check_peer_numbers_response":
-                #    if not data["is_ok"]:
-                #        print("Peer numbers not ok")
-                #        #TODO handle syncing numbers (bingo_host)
             except timeout:
                 continue
-
-    def check_peer_numbers(self, data):
-        peer_numbers = data["my_numbers"]
-        is_ok = len(peer_numbers) == len(self.drawn_numbers) and peer_numbers == self.drawn_numbers
-        for peer_socket in self.peer_sockets:
-            peer_socket.sendall(
-                pickle.dumps({
-                    "type": "check_peer_numbers_response",
-                    "is_ok": is_ok,
-                    "timestamp": datetime.datetime.now(),
-                })
-            )
 
     def send_numbers_to_peers(self):
         message_type = "check_numbers"
