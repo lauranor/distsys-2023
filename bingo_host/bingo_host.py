@@ -24,6 +24,7 @@ class BingoHost:
         self.launch()
 
     # Initialises a new game
+    # Resets all game variables and generates a new set of numbers
     def initialise_new_game(self):
         self.socket.bind((self.host, self.port))
         self.socket.listen()
@@ -43,7 +44,8 @@ class BingoHost:
             # Accept new connections from players
             conn, addr = self.socket.accept()
             self.add_player(conn, addr)
-            # todo? registration round open for a certain time, then start the game
+            # Adjust the number below to change the number of players required to start the game
+            # todo: registration round open for a certain time, then start the game if enough players have registered
             if len(self.players) == 2:
                 self.registration_open = False
         self.start_game()
@@ -78,7 +80,7 @@ class BingoHost:
             print(f"Connected by {addr}")
 
     # Method to send a message to all players
-    # If response_type is not None, wait for response from all players
+    # If response_type is not None, waits for response from all players
     # consider multicasting?
     def send_message_to_players(self, message, response_type=None):
         for conn in self.connections:
@@ -279,6 +281,7 @@ class BingoHost:
             self.handle_non_bingo()
 
     # Handles a non-bingo
+    # Sends a message to all players and resumes the game
     def handle_non_bingo(self):
         print("Not a bingo :(")
         self.send_message_to_players({
@@ -326,7 +329,8 @@ class BingoHost:
         print("No bingo found.")
         return None
 
-    # Handle consensus round
+    # Handles consensus round
+    # Returns true if consensus is reached, false otherwise
     def is_consensus(self, bingo_row):
         self.send_message_to_players({  
                 "type": "consensus_round",
